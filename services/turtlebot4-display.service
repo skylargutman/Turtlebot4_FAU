@@ -1,0 +1,17 @@
+[Unit]
+Description=TurtleBot4 Custom LCD Display
+After=network.target turtlebot4.service
+Wants=turtlebot4.service
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/usr/bin/python3 /opt/turtlebot4/scripts/custom_display.py
+Restart=on-failure
+RestartSec=5
+Environment="ROS_DOMAIN_ID=XX"
+Environment="RMW_IMPLEMENTATION=rmw_fastrtps_cpp"
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target
