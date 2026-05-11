@@ -6,11 +6,9 @@ Wants=turtlebot4.service
 [Service]
 Type=simple
 User=ubuntu
-ExecStart=/usr/bin/python3 /opt/turtlebot4/scripts/scan_normalizer.py
+ExecStart=/bin/bash -c "source /etc/turtlebot4/setup.bash && python3 /opt/turtlebot4/scripts/scan_normalizer.py"
 Restart=on-failure
 RestartSec=5
-Environment="ROS_DOMAIN_ID=XX"
-Environment="RMW_IMPLEMENTATION=rmw_fastrtps_cpp"
 Environment="PYTHONUNBUFFERED=1"
 
 [Install]

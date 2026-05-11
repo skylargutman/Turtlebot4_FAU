@@ -1,46 +1,48 @@
 #!/bin/bash
 # install.sh - Install TurtleBot4 FAU fleet custom scripts and services
-# Usage: sudo ./install.sh <BOT_NUMBER>
+# Usage: sudo ./install.sh
 #
 # This script:
 #   1. Installs Python dependencies (smbus2, Pillow, i2c-tools)
 #   2. Copies scripts to /opt/turtlebot4/scripts/
-#   3. Copies systemd service files, setting ROS_DOMAIN_ID to your bot number
+#   3. Copies systemd service files to /etc/systemd/system/
 #   4. Enables and starts all services
 #   5. Verifies each service is running
+#
+# Note: ROS_DOMAIN_ID and Discovery Server config are inherited from
+# /etc/turtlebot4/setup.bash which is sourced by the service files.
+# No per-bot configuration is needed in this script.
 
 set -e
 
-if [ -z "$1" ]; then
-    echo "Usage: sudo $0 <BOT_NUMBER>"
-    echo "Example: sudo $0 7"
-    exit 1
-fi
-
 if [ "$EUID" -ne 0 ]; then
     echo "Error: This script must be run with sudo."
-    echo "Usage: sudo $0 $1"
+    echo "Usage: sudo $0"
     exit 1
 fi
 
-BOT_NUM=$1
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 INSTALL_DIR="/opt/turtlebot4/scripts"
 SERVICE_DIR="/etc/systemd/system"
 
+# Read domain ID from setup.bash if it exists
+DOMAIN_ID="(unknown)"
+if [ -f /etc/turtlebot4/setup.bash ]; then
+    DOMAIN_ID=$(grep ROS_DOMAIN_ID /etc/turtlebot4/setup.bash | head -1 | cut -d'"' -f2)
+fi
+
 echo "==========================================="
 echo "  TurtleBot4 FAU Fleet Installer"
 echo "==========================================="
-echo "  Bot number:     $BOT_NUM"
-echo "  ROS_DOMAIN_ID:  $BOT_NUM"
+echo "  ROS_DOMAIN_ID:  $DOMAIN_ID (from setup.bash)"
 echo "  Install dir:    $INSTALL_DIR"
 echo "==========================================="
 echo ""
 
 # Step 1: Install Python dependencies
 echo "[1/5] Installing Python dependencies..."
-apt install -y python3-pip i2c-tools python3-smbus2 > /dev/null 2>&1 || true
+apt install -y python3-pip i2c-tools > /dev/null 2>&1 || true
 pip3 install --break-system-packages smbus2 Pillow > /dev/null 2>&1 || true
 echo "       Done."
 
@@ -52,14 +54,13 @@ cp "$SCRIPT_DIR/custom_display.py" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR"/*.py
 echo "       Done."
 
-# Step 3: Copy and configure service files
+# Step 3: Copy service files
 echo "[3/5] Installing systemd services..."
 for svc_file in "$REPO_DIR/services/"*.service; do
     if [ -f "$svc_file" ]; then
         svc_name=$(basename "$svc_file")
-        sed "s/ROS_DOMAIN_ID=XX/ROS_DOMAIN_ID=$BOT_NUM/g" \
-            "$svc_file" > "$SERVICE_DIR/$svc_name"
-        echo "       Installed $svc_name (ROS_DOMAIN_ID=$BOT_NUM)"
+        cp "$svc_file" "$SERVICE_DIR/$svc_name"
+        echo "       Installed $svc_name"
     fi
 done
 
@@ -92,7 +93,7 @@ fi
 echo ""
 echo "==========================================="
 echo "  Installation complete!"
-echo "  ROS_DOMAIN_ID=$BOT_NUM set in all services"
+echo "  ROS_DOMAIN_ID=$DOMAIN_ID (from /etc/turtlebot4/setup.bash)"
 echo "==========================================="
 echo ""
 echo "Useful commands:"
@@ -102,5 +103,5 @@ echo "  sudo journalctl -u scan-normalizer.service -f"
 echo "  sudo journalctl -u turtlebot4-display.service -f"
 echo ""
 echo "To update later:"
-echo "  cd ~/turtlebot4_fau && git pull"
-echo "  sudo ./scripts/install.sh $BOT_NUM"
+echo "  cd ~/Turtlebot4_FAU && git pull"
+echo "  sudo ./scripts/install.sh"

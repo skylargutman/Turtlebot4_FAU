@@ -15,10 +15,18 @@ Hardware:
   - SSD1306 128x64 OLED on I2C bus 1, address 0x3c
 """
 
+import os
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import String
 from sensor_msgs.msg import BatteryState
+
+try:
+    from irobot_create_msgs.msg import DockStatus
+    HAS_DOCK_MSG = True
+except ImportError:
+    HAS_DOCK_MSG = False
 
 import smbus2
 import time
@@ -69,9 +77,10 @@ class SSD1306:
             self._cmd(c)
 
     def display(self, image):
-        """Send a PIL Image to the display."""
-        # Convert to 1-bit and extract pixel data
-        buf = image.convert('1').tobytes()
+        """Send a PIL Image (mode '1') to the display.
+        Black background, white lit pixels."""
+        # Convert to 1-bit
+        bw = image.convert('1')
 
         # Set column and page address
         self._cmd(0x21)  # Set column address
@@ -81,14 +90,13 @@ class SSD1306:
         self._cmd(0)     # Start
         self._cmd(PAGES - 1)  # End
 
-        # Convert horizontal pixel data to page format
+        # Build page buffer
+        # In mode '1', pixel value 255 = white (lit), 0 = black (off)
         pages = [0] * (WIDTH * PAGES)
+        pixels = bw.load()
         for y in range(HEIGHT):
             for x in range(WIDTH):
-                pixel = buf[y * ((WIDTH + 7) // 8) + x // 8]
-                if pixel & (0x80 >> (x % 8)):
-                    pass  # pixel is white (set)
-                else:
+                if pixels[x, y]:  # white pixel = lit
                     pages[(y // 8) * WIDTH + x] |= (1 << (y % 8))
 
         # Send data in chunks (smbus2 max is 32 bytes)
@@ -122,21 +130,28 @@ class DisplayNode(Node):
             self.oled = None
             return
 
-        # Subscribe to topics
+        # Subscribe to topics with sensor QoS for Create 3 compatibility
         self.create_subscription(
-            BatteryState, '/battery_state', self._battery_cb, 10)
+            BatteryState, '/battery_state', self._battery_cb,
+            qos_profile_sensor_data)
         self.create_subscription(
-            String, '/ip', self._ip_cb, 10)
+            String, '/ip', self._ip_cb,
+            qos_profile_sensor_data)
+
+        if HAS_DOCK_MSG:
+            self.create_subscription(
+                DockStatus, '/dock_status', self._dock_cb,
+                qos_profile_sensor_data)
 
         # Refresh display every 2 seconds
         self.timer = self.create_timer(2.0, self._refresh)
 
-        # Try to load a TTF font, fall back to default
+        # Load fonts
         try:
             self.font = ImageFont.truetype(
-                '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', 10)
+                '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', 12)
             self.font_sm = ImageFont.truetype(
-                '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', 8)
+                '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', 11)
         except Exception:
             self.font = ImageFont.load_default()
             self.font_sm = self.font
@@ -147,34 +162,40 @@ class DisplayNode(Node):
     def _ip_cb(self, msg):
         self.ip_address = msg.data
 
+    def _dock_cb(self, msg):
+        self.dock_status = 'docked' if msg.is_docked else 'undocked'
+
     def _refresh(self):
         if self.oled is None:
             return
 
+        # Black background, white text
         img = Image.new('1', (WIDTH, HEIGHT), 0)
         draw = ImageDraw.Draw(img)
 
-        # Header line
-        draw.text((0, 0), f'TB4 FAU', font=self.font, fill=1)
-        draw.text((80, 0), f'{self.battery_pct:.0f}%', font=self.font, fill=1)
+        domain = os.environ.get('ROS_DOMAIN_ID', '?')
+
+        # Line 1: Header
+        draw.text((0, 0), f'TB4 #{domain}', font=self.font, fill=255)
+        draw.text((80, 0), f'{self.battery_pct:.0f}%', font=self.font, fill=255)
 
         # Separator
-        draw.line([(0, 12), (WIDTH, 12)], fill=1)
+        draw.line([(0, 15), (WIDTH, 15)], fill=255)
 
-        # IP address
-        draw.text((0, 16), f'IP: {self.ip_address}', font=self.font_sm, fill=1)
+        # Line 2: IP address
+        draw.text((0, 18), f'{self.ip_address}', font=self.font_sm, fill=255)
 
-        # Status
-        draw.text((0, 28), f'Dock: {self.dock_status}', font=self.font_sm, fill=1)
+        # Line 3: Dock status
+        draw.text((0, 34), f'Dock: {self.dock_status}', font=self.font_sm, fill=255)
 
-        # Domain ID
-        import os
-        domain = os.environ.get('ROS_DOMAIN_ID', '?')
-        draw.text((0, 40), f'Domain: {domain}', font=self.font_sm, fill=1)
-
-        # Hostname
-        import socket
-        draw.text((0, 52), socket.gethostname(), font=self.font_sm, fill=1)
+        # Line 4: Battery bar
+        bar_y = 50
+        bar_w = 100
+        bar_h = 10
+        draw.rectangle([(0, bar_y), (bar_w, bar_y + bar_h)], outline=255)
+        fill_w = int(bar_w * min(self.battery_pct / 100.0, 1.0))
+        if fill_w > 0:
+            draw.rectangle([(0, bar_y), (fill_w, bar_y + bar_h)], fill=255)
 
         self.oled.display(img)
 
@@ -184,13 +205,16 @@ def main():
     node = DisplayNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:
         if node.oled:
             node.oled.clear()
         node.destroy_node()
-        rclpy.shutdown()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':
