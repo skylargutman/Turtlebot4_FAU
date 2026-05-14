@@ -34,9 +34,9 @@ Each bot and companion computer has a sticker with a number from 01 to 50. All c
 
 | Item | Value |
 |---|---|
-| Wi-Fi SSID | `GL-MT3000-3e8-5G` |
+| Wi-Fi SSID (5 GHz, for RPi) | `GL-MT3000-3e8-5G` |
+| Wi-Fi SSID (2.4 GHz, for Create 3) | `GL-MT3000-3e8` |
 | Wi-Fi Passkey | *(provided by instructor)* |
-| Wi-Fi Band | 5 GHz (recommended for RPi) |
 
 ### What You Need at the Bench
 
@@ -135,6 +135,7 @@ sudo apt install -y ros-humble-turtlebot4-viz
 sudo apt install -y ros-humble-teleop-twist-keyboard
 sudo apt install -y ros-humble-irobot-create-msgs
 sudo apt install -y ros-humble-irobot-create-description
+sudo apt install -y ros-humble-image-transport-plugins
 ```
 
 > **IMPORTANT:** The `irobot-create-msgs` package is required to deserialize Create 3 messages on the PC. Without it, topics like `/odom`, `/dock_status`, and `/wheel_status` will appear as "invalid message type" errors.
@@ -224,14 +225,23 @@ rpi-imager
    - **Operating System:** Other general-purpose OS > Ubuntu > Ubuntu Server 22.04.x LTS (64-bit)
    - **Storage:** select your microSD card
 
-> **WARNING:** Do NOT use the Imager gear icon to pre-configure Wi-Fi, hostname, or SSH. The TurtleBot 4 setup script handles all of this. Pre-configuring can conflict with the setup tool.
+5. Click the **gear icon** (or Edit Settings) and configure the following:
+   - **Hostname:** `ubuntu`
+   - **Enable SSH:** Yes, use password authentication
+   - **Username:** `ubuntu`
+   - **Password:** `turtlebot4`
+   - **Configure wireless LAN:**
+     - SSID: `GL-MT3000-3e8-5G`
+     - Password: *(provided by instructor)*
+     - Wireless LAN country: `US`
+   - **Locale settings:** Timezone `America/New_York`
 
-5. Click "Write" and wait for the image to be written and verified.
-6. **Do NOT eject the SD card yet.** You need to edit two files before first boot.
+6. Click **Save**, then click **Write** and wait for the image to be written and verified.
+7. The Imager will automatically unmount the SD card when finished. Remove and reinsert the SD card reader to remount it for the next step.
 
 ### 2.2 Pre-Configure the SD Card
 
-After flashing, the SD card will have a partition called `writable`. Mount it and make two edits before first boot: network configuration and SSH key access.
+After flashing, the SD card has a partition called `writable`. Mount it and make additional edits before first boot.
 
 1. Find the writable partition:
 
@@ -241,60 +251,53 @@ lsblk
 # Usually something like /media/turtlebot4/writable
 ```
 
-2. **Configure networking.** The TurtleBot 4 setup script (which you will run later) creates two netplan files: `40-ethernets.yaml` and `50-wifis.yaml`. Create them now on the SD card so the RPi has network access on first boot.
+2. **Copy default shell configuration files.** On a fresh Ubuntu Server image, the `/etc/skel` files are not always copied to the `ubuntu` user's home directory. Fix this now:
+
+```bash
+sudo cp /media/turtlebot4/writable/etc/skel/.bashrc /media/turtlebot4/writable/home/ubuntu/
+sudo cp /media/turtlebot4/writable/etc/skel/.profile /media/turtlebot4/writable/home/ubuntu/
+sudo cp /media/turtlebot4/writable/etc/skel/.bash_logout /media/turtlebot4/writable/home/ubuntu/
+sudo chown -R 1000:1000 /media/turtlebot4/writable/home/ubuntu/
+```
+
+3. **Configure the ethernet static IP.** Create the ethernet netplan file so the RPi gets a known IP on first boot (substitute your bot number for XX):
 
 ```bash
 sudo nano /media/turtlebot4/writable/etc/netplan/40-ethernets.yaml
 ```
 
-Replace the entire contents with the following (substitute your bot number for XX):
+Enter the following:
 
 ```yaml
 network:
   version: 2
-  renderer: NetworkManager
+  renderer: networkd
   ethernets:
     eth0:
       addresses:
         - 10.0.0.XX/24
-      optional: true
+      dhcp4: false
+      optional: false
     usb0:
       addresses:
         - 192.168.186.3/24
       dhcp4: false
-```
-
-> **IMPORTANT:** The `usb0` interface is the internal USB-C connection between the RPi and the Create 3. The Create 3 webserver is at `192.168.186.2` on this interface. Do not change the `usb0` address.
-
-Now create the Wi-Fi config (get the password from your instructor):
-
-```bash
-sudo nano /media/turtlebot4/writable/etc/netplan/50-wifis.yaml
-```
-
-```yaml
-network:
-  version: 2
-  wifis:
-    wlan0:
-      optional: true
-      dhcp4: true
-      access-points:
-        "GL-MT3000-3e8-5G":
-          password: "YOUR_FLEET_PASSWORD"
-```
-
-If a `50-cloud-init.yaml` file exists, delete it:
-
-```bash
-sudo rm -f /media/turtlebot4/writable/etc/netplan/50-cloud-init.yaml
+      optional: false
 ```
 
 For example, bot 07 would use `10.0.0.7/24`.
 
-> **IMPORTANT:** Use spaces only, not tabs. Each indent level is exactly 2 spaces.
+> **IMPORTANT:** The `usb0` interface is the internal USB-C connection between the RPi and the Create 3. The Create 3 webserver is at `192.168.186.2` on this interface. Do not change the `usb0` address.
 
-3. **Copy your SSH public key to the SD card.** The default Ubuntu Server image does not allow password-based SSH login. Instead of editing SSH config files, copy your public key so you can log in immediately.
+4. **Set file permissions** on the netplan file:
+
+```bash
+sudo chmod 600 /media/turtlebot4/writable/etc/netplan/40-ethernets.yaml
+```
+
+> **IMPORTANT:** Use spaces only, not tabs in YAML files. Each indent level is exactly 2 spaces.
+
+5. **Copy your SSH public key to the SD card.** This allows passwordless SSH login.
 
 First, generate an SSH key on your PC if you don't already have one:
 
@@ -317,11 +320,11 @@ sudo chmod 700 /media/turtlebot4/writable/home/ubuntu/.ssh
 sudo chmod 600 /media/turtlebot4/writable/home/ubuntu/.ssh/authorized_keys
 ```
 
-4. Eject the SD card and insert it into the powered-off Raspberry Pi.
+6. Eject the SD card and insert it into the powered-off Raspberry Pi.
 
 ### 2.3 First Boot of the RPi
 
-The RPi is powered by the USB-C cable from the Create 3 base. You will connect to the RPi over ethernet from your companion PC using the static IP you configured on the SD card. The RPi will also connect to the fleet Wi-Fi automatically.
+The RPi is powered by the USB-C cable from the Create 3 base. You will connect to the RPi over ethernet from your companion PC using the static IP you configured on the SD card. The RPi will also connect to the fleet Wi-Fi automatically (configured by the Imager).
 
 1. Insert the flashed SD card into the Raspberry Pi.
 2. Connect an ethernet cable between the RPi's ethernet port and your companion PC's ethernet port.
@@ -342,17 +345,66 @@ ssh ubuntu@10.0.0.7
 > **TIP:** If SSH fails with "Connection refused", the RPi is still booting. Wait another minute and try again.
 
 6. You will be logged in via your SSH key with no password prompt.
-7. Change the default password (you will need it for `sudo`):
-
-```bash
-passwd
-```
-
-Set the new password to `turtlebot4`.
 
 > **IMPORTANT:** Do NOT change the hostname. Leave it as `ubuntu`.
 
-8. Verify Wi-Fi connected automatically:
+7. **Enable the USB gadget ethernet interface** so the RPi can communicate with the Create 3 over USB:
+
+```bash
+sudo nano /boot/firmware/config.txt
+```
+
+Find the line:
+
+```
+dtoverlay=dwc2
+```
+
+Change it to:
+
+```
+dtoverlay=dwc2,dr_mode=peripheral
+```
+
+Then add the ethernet gadget kernel module:
+
+```bash
+echo "g_ether" | sudo tee -a /etc/modules
+```
+
+8. **Install smbus2** for the LCD display (needed later in Part 4):
+
+```bash
+sudo pip3 install --break-system-packages smbus2 Pillow
+```
+
+9. **Update the system:**
+
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+10. Reboot to apply the USB gadget changes:
+
+```bash
+sudo reboot
+```
+
+11. Wait 2-3 minutes, then SSH back in:
+
+```bash
+ssh ubuntu@10.0.0.XX
+```
+
+12. Verify the USB gadget interface is active:
+
+```bash
+ip a show usb0
+```
+
+You should see the `usb0` interface with the `192.168.186.3/24` address.
+
+13. Verify Wi-Fi connected automatically:
 
 ```bash
 ip a show wlan0
@@ -360,7 +412,7 @@ ip a show wlan0
 
 Look for an `inet` line showing your Wi-Fi IP address (e.g., `192.168.X.X`).
 
-9. **Write down the Wi-Fi IP address:**
+14. **Write down the Wi-Fi IP address:**
 
 | Item | Your Value |
 |---|---|
@@ -369,7 +421,7 @@ Look for an `inet` line showing your Wi-Fi IP address (e.g., `192.168.X.X`).
 
 > **TIP:** Record the MAC address too (shown in `ip a show wlan0` on the `link/ether` line). Your instructor may use this later for DHCP reservations on the router.
 
-10. Verify internet access:
+15. Verify internet access:
 
 ```bash
 ping -c 3 google.com
@@ -408,30 +460,30 @@ wget -qO - https://raw.githubusercontent.com/turtlebot/turtlebot4_setup/humble/s
 
 The script will pick up where it left off and complete the installation.
 
-5. **Before rebooting**, you must fix the network configuration. The setup script deletes `50-cloud-init.yaml` and replaces it with `40-ethernets.yaml` and `50-wifis.yaml` containing defaults that will break your connection. Edit both files now:
+5. **Before rebooting**, you must fix the network configuration. The setup script overwrites the netplan files with defaults that will break your connection. Edit the ethernet config:
 
 ```bash
 sudo nano /etc/netplan/40-ethernets.yaml
 ```
 
-Replace the contents with the following (substitute your bot number for XX). This configures your static ethernet IP and the USB connection to the Create 3:
+Replace the contents with the following (substitute your bot number for XX):
 
 ```yaml
 network:
   version: 2
-  renderer: NetworkManager
+  renderer: networkd
   ethernets:
     eth0:
       addresses:
         - 10.0.0.XX/24
-      optional: true
+      dhcp4: false
+      optional: false
     usb0:
       addresses:
         - 192.168.186.3/24
       dhcp4: false
+      optional: false
 ```
-
-> **IMPORTANT:** The `usb0` interface is the internal USB-C connection between the RPi and the Create 3. The Create 3 webserver is at `192.168.186.2` on this interface. Do not change the `usb0` address.
 
 Then edit the Wi-Fi config:
 
@@ -444,6 +496,7 @@ Make sure it contains your fleet Wi-Fi settings (get the password from your inst
 ```yaml
 network:
   version: 2
+  renderer: networkd
   wifis:
     wlan0:
       optional: true
@@ -451,6 +504,13 @@ network:
       access-points:
         "GL-MT3000-3e8-5G":
           password: "YOUR_FLEET_PASSWORD"
+```
+
+Set permissions on both files:
+
+```bash
+sudo chmod 600 /etc/netplan/40-ethernets.yaml
+sudo chmod 600 /etc/netplan/50-wifis.yaml
 ```
 
 6. Install chrony for clock synchronization (critical for SLAM, TF transforms, and Create 3 communication):
@@ -516,7 +576,11 @@ http://localhost:8080
 
 You should see the Create 3 webserver landing page. From here you can navigate using the menu.
 
-3. **Update the firmware.** Navigate to **Update** in the webserver menu. Update to the latest stable firmware. The Create 3 will reboot when complete (60-90 seconds, you will hear tones).
+3. **Update the firmware.** The firmware update link in the Create 3 webserver does not work. Download firmware version **H.2.6** manually from:
+
+**https://iroboteducation.github.io/create3_docs/releases/overview/**
+
+Then navigate to **Update** in the webserver menu and upload the firmware file. The Create 3 will reboot when complete (60-90 seconds, you will hear tones).
 
 4. **Factory reset the Create 3.** Navigate to **About** > **Reset**. Click "Reset to Factory Default". The Create 3 will reboot again.
 
@@ -560,18 +624,22 @@ turtlebot4-setup
 
 > **IMPORTANT:** Leave the Offboard Server IP blank. Setting an offboard server is not recommended for this fleet because it would cause all robots to cross-communicate and overload the network.
 
-9. Navigate to **Wi-Fi Setup** and verify:
+9. Navigate to **Wi-Fi Setup** and configure:
    - Wi-Fi Mode: `Client`
-   - SSID: `GL-MT3000-3e8-5G`
+   - SSID: `GL-MT3000-3e8`
    - Password: *(provided by instructor)*
-   - Band: `5GHz`
+   - Band: `Any` (the Create 3 only supports 2.4 GHz)
    - DHCP: `True`
+
+> **NOTE:** The Create 3 only supports 2.4 GHz Wi-Fi, so use the `GL-MT3000-3e8` SSID (not the 5G version). The RPi connects to the 5G network separately via netplan.
 
 10. Save the settings, then select **Apply Settings** from the main menu.
 
 > **WARNING:** Applying settings will write configuration to the Create 3, which will reboot. Your SSH session may hang if Wi-Fi settings changed. Wait 2-3 minutes for the full reboot cycle. The Create 3 will chime when it is ready.
 
-11. After the Create 3 chimes, verify from the RPi terminal:
+11. After the Create 3 chimes, go back into `turtlebot4-setup` and navigate to **About > Model**. Select `lite`.
+
+12. Verify from the RPi terminal:
 
 ```bash
 turtlebot4-source
@@ -598,7 +666,7 @@ wget -qO - https://raw.githubusercontent.com/turtlebot/turtlebot4_setup/humble/t
 | Prompt | Your Value |
 |---|---|
 | `ROS_DOMAIN_ID` | Your bot number (e.g., `7`) |
-| `Discovery Server ID` | Your bot number (e.g., `7`) |
+| `Discovery Server ID` | `0` |
 | `Discovery Server IP` | Your RPi Wi-Fi IP address |
 | `Discovery Server Port` | Press Enter for default (`11811`) |
 | Done/add another? | `d` (done) |
@@ -644,13 +712,15 @@ Before moving to Part 3, verify:
 - [ ] RPi booted, `ubuntu` login works with password `turtlebot4`
 - [ ] RPi connected to fleet Wi-Fi, Wi-Fi IP address recorded
 - [ ] RPi ethernet static IP `10.0.0.XX` working
+- [ ] `usb0` interface active with `192.168.186.3/24`
 - [ ] TurtleBot 4 setup script completed (ran twice: crash, reboot, re-run)
-- [ ] Netplan files (`40-ethernets.yaml`, `50-wifis.yaml`) updated with correct settings
+- [ ] Netplan files updated with correct settings after setup script
 - [ ] Chrony installed and running on the RPi: `chronyc tracking`
-- [ ] Create 3 firmware updated and factory reset (via SSH tunnel + browser)
-- [ ] Create 3 `publish_odom_tfs` parameters set to `true`
-- [ ] Discovery Server enabled via `turtlebot4-setup` (server ID = bot number)
+- [ ] Create 3 firmware updated to H.2.6 and factory reset (via SSH tunnel + browser)
+- [ ] Create 3 `publish_odometry_tfs` parameters set to `true`
+- [ ] Discovery Server enabled via `turtlebot4-setup` (server ID = 0)
 - [ ] `ROS_DOMAIN_ID` set to your bot number
+- [ ] Model set to `lite` in About menu
 - [ ] Create 3 chimed after applying settings
 - [ ] Discovery Server configured on the companion PC (Section 2.6)
 - [ ] RPLidar URDF `rpy` changed from `pi/2` to `pi`
@@ -713,7 +783,6 @@ Select the `/oakd/rgb/preview/image_raw/compressed` topic in the dropdown.
 > **NOTE:** The full SLAM test will be performed after the custom scripts are installed in Part 4, since SLAM Toolbox requires the `scan_normalizer` to handle inconsistent lidar point counts.
 
 ---
-
 
 ## Part 4: Custom Scripts and Services
 
@@ -900,7 +969,7 @@ These are common problems encountered during setup and operation, along with the
 
 **Symptom:** After running `turtlebot4_setup.sh` and rebooting, the RPi is unreachable via SSH on both ethernet and Wi-Fi.
 
-**Cause:** The setup script deletes `50-cloud-init.yaml` and creates `40-ethernets.yaml` and `50-wifis.yaml` with default values that do not have your static IP or Wi-Fi credentials. If you rebooted without editing these files, the RPi has no usable network config.
+**Cause:** The setup script overwrites `40-ethernets.yaml` and `50-wifis.yaml` with default values that do not have your static IP or Wi-Fi credentials. If you rebooted without editing these files, the RPi has no usable network config.
 
 **Fix:** You need to re-edit the SD card. Power off the bot, pull the SD card, mount it on your PC, and edit both files:
 - `/media/turtlebot4/writable/etc/netplan/40-ethernets.yaml`: add your static `10.0.0.XX/24` address (and `usb0` config)
@@ -927,7 +996,7 @@ Then `/odom` should appear in `ros2 topic list` and topic echos will work proper
 
 **Symptom:** `/odom` topic publishes data, but `ros2 run tf2_ros tf2_echo odom base_link` returns "frame does not exist". SLAM Toolbox or NAV2 fails silently or rejects scans. RViz cannot locate the robot in the world.
 
-**Cause:** The Create 3 has the `motion_control.publish_odom_tfs` parameter set to `false`. The robot publishes odometry data but does not broadcast the corresponding TF transform from `odom` to `base_link`.
+**Cause:** The Create 3 does not publish the TF transform from `odom` to `base_link` by default.
 
 **Fix:** Open the Create 3 webserver via SSH tunnel (see Section 2.5) and navigate to **Application** > **Configuration**. Scroll down to the parameters section and add:
 
@@ -998,6 +1067,21 @@ If still empty, verify:
 turtlebot4-setup
 # Navigate to ROS Setup > Robot Upstart > Restart
 ```
+
+### RPLidar Buffer Overflow / No /dev/ttyUSB0
+
+**Symptom:** The `rplidar_composition` node crashes immediately with "buffer overflow detected" and `/dev/ttyUSB0` does not exist.
+
+**Cause:** The RPLidar interface board (the small PCB between the lidar and the USB cable) is faulty. This is a hardware failure, not a software issue.
+
+**Fix:** Replace the RPLidar interface board. After replacing, verify the lidar is detected:
+
+```bash
+lsusb | grep -i "cp210\|silicon"
+ls /dev/ttyUSB0
+```
+
+You should see a Silicon Labs CP210x device in `lsusb` and `/dev/ttyUSB0` should exist.
 
 ### Create 3 Does Not Chime After Applying Settings
 
@@ -1101,13 +1185,12 @@ Fill in this worksheet as you complete each section. Keep it at your bench for r
 | PC hostname | `turtlebot4pc-` |
 | PC ethernet IP | `10.0.0.` |
 | RPi hostname | `ubuntu` |
-| RPi password (new) | `turtlebot4` |
 | RPi ethernet IP | `10.0.0.` |
 | RPi Wi-Fi IP (wlan0) | |
 | RPi MAC address (wlan0) | |
 | ROS_DOMAIN_ID | |
-| Discovery Server ID | |
-| Create 3 firmware version | |
+| Discovery Server ID | `0` |
+| Create 3 firmware version | H.2.6 |
 
 ### Completion Checklist
 
@@ -1129,6 +1212,12 @@ Have your instructor initial each section when complete:
 **SSH into RPi:**
 ```bash
 ssh ubuntu@<RPI_IP>
+```
+
+**SSH tunnel to Create 3 webserver:**
+```bash
+ssh -L 8080:192.168.186.2:80 ubuntu@10.0.0.XX
+# Then browse: http://localhost:8080
 ```
 
 **Restart ROS 2 daemon (run on both PC and RPi when things look stale):**
@@ -1189,5 +1278,6 @@ ros2 run nav2_map_server map_saver_cli -f ~/maps/my_map -p save_map_timeout:=10.
 - [TurtleBot 4 Multiple Robots Tutorial](https://turtlebot.github.io/turtlebot4-user-manual/tutorials/multiple_robots.html)
 - [iRobot Create 3 Documentation](https://iroboteducation.github.io/create3_docs/)
 - [iRobot Create 3 Webserver Reference](https://iroboteducation.github.io/create3_docs/webserver/overview/)
+- [iRobot Create 3 Firmware Releases](https://iroboteducation.github.io/create3_docs/releases/overview/)
 - [iRobot Create 3 ROS 2 Topics](https://iroboteducation.github.io/create3_docs/api/ros2/)
 - [ROS 2 Humble Documentation](https://docs.ros.org/en/humble/index.html)
