@@ -43,7 +43,7 @@ echo ""
 # Step 1: Install Python dependencies
 echo "[1/5] Installing Python dependencies..."
 apt install -y python3-pip i2c-tools > /dev/null 2>&1 || true
-pip3 install --break-system-packages smbus2 Pillow > /dev/null 2>&1 || true
+pip3 install --break-system-packages smbus2 Pillow 2>/dev/null || pip3 install smbus2 Pillow
 echo "       Done."
 
 # Step 2: Copy scripts

@@ -254,6 +254,7 @@ lsblk
 2. **Copy default shell configuration files.** On a fresh Ubuntu Server image, the `/etc/skel` files are not always copied to the `ubuntu` user's home directory. Fix this now:
 
 ```bash
+sudo mkdir -p /media/turtlebot4/writable/home/ubuntu/
 sudo cp /media/turtlebot4/writable/etc/skel/.bashrc /media/turtlebot4/writable/home/ubuntu/
 sudo cp /media/turtlebot4/writable/etc/skel/.profile /media/turtlebot4/writable/home/ubuntu/
 sudo cp /media/turtlebot4/writable/etc/skel/.bash_logout /media/turtlebot4/writable/home/ubuntu/
@@ -372,31 +373,25 @@ Then add the ethernet gadget kernel module:
 echo "g_ether" | sudo tee -a /etc/modules
 ```
 
-8. **Install smbus2** for the LCD display (needed later in Part 4):
-
-```bash
-sudo pip3 install --break-system-packages smbus2 Pillow
-```
-
-9. **Update the system:**
+8. **Update the system:**
 
 ```bash
 sudo apt update && sudo apt upgrade -y
 ```
 
-10. Reboot to apply the USB gadget changes:
+9. Reboot to apply the USB gadget changes:
 
 ```bash
 sudo reboot
 ```
 
-11. Wait 2-3 minutes, then SSH back in:
+10. Wait 2-3 minutes, then SSH back in:
 
 ```bash
 ssh ubuntu@10.0.0.XX
 ```
 
-12. Verify the USB gadget interface is active:
+11. Verify the USB gadget interface is active:
 
 ```bash
 ip a show usb0
@@ -404,7 +399,7 @@ ip a show usb0
 
 You should see the `usb0` interface with the `192.168.186.3/24` address.
 
-13. Verify Wi-Fi connected automatically:
+12. Verify Wi-Fi connected automatically:
 
 ```bash
 ip a show wlan0
@@ -412,7 +407,7 @@ ip a show wlan0
 
 Look for an `inet` line showing your Wi-Fi IP address (e.g., `192.168.X.X`).
 
-14. **Write down the Wi-Fi IP address:**
+13. **Write down the Wi-Fi IP address:**
 
 | Item | Your Value |
 |---|---|
@@ -421,7 +416,7 @@ Look for an `inet` line showing your Wi-Fi IP address (e.g., `192.168.X.X`).
 
 > **TIP:** Record the MAC address too (shown in `ip a show wlan0` on the `link/ether` line). Your instructor may use this later for DHCP reservations on the router.
 
-15. Verify internet access:
+14. Verify internet access:
 
 ```bash
 ping -c 3 google.com
@@ -460,13 +455,19 @@ wget -qO - https://raw.githubusercontent.com/turtlebot/turtlebot4_setup/humble/s
 
 The script will pick up where it left off and complete the installation.
 
-5. **Before rebooting**, you must fix the network configuration. The setup script overwrites the netplan files with defaults that will break your connection. Edit the ethernet config:
+5. **Before rebooting**, verify the network configuration. The setup script may overwrite the netplan files. Check that your ethernet config is still correct:
+
+```bash
+cat /etc/netplan/40-ethernets.yaml
+```
+
+Verify it still has your static IP (`10.0.0.XX/24`) and the `usb0` interface (`192.168.186.3/24`). If the setup script replaced it with defaults, re-edit it:
 
 ```bash
 sudo nano /etc/netplan/40-ethernets.yaml
 ```
 
-Replace the contents with the following (substitute your bot number for XX):
+It should contain:
 
 ```yaml
 network:
@@ -483,34 +484,6 @@ network:
         - 192.168.186.3/24
       dhcp4: false
       optional: false
-```
-
-Then edit the Wi-Fi config:
-
-```bash
-sudo nano /etc/netplan/50-wifis.yaml
-```
-
-Make sure it contains your fleet Wi-Fi settings (get the password from your instructor):
-
-```yaml
-network:
-  version: 2
-  renderer: networkd
-  wifis:
-    wlan0:
-      optional: true
-      dhcp4: true
-      access-points:
-        "GL-MT3000-3e8-5G":
-          password: "YOUR_FLEET_PASSWORD"
-```
-
-Set permissions on both files:
-
-```bash
-sudo chmod 600 /etc/netplan/40-ethernets.yaml
-sudo chmod 600 /etc/netplan/50-wifis.yaml
 ```
 
 6. Install chrony for clock synchronization (critical for SLAM, TF transforms, and Create 3 communication):
@@ -626,20 +599,28 @@ turtlebot4-setup
 
 9. Navigate to **Wi-Fi Setup** and configure:
    - Wi-Fi Mode: `Client`
-   - SSID: `GL-MT3000-3e8`
+   - SSID: `GL-MT3000-3e8-5G`
    - Password: *(provided by instructor)*
-   - Band: `Any` (the Create 3 only supports 2.4 GHz)
+   - Band: `5GHz`
    - DHCP: `True`
 
-> **NOTE:** The Create 3 only supports 2.4 GHz Wi-Fi, so use the `GL-MT3000-3e8` SSID (not the 5G version). The RPi connects to the 5G network separately via netplan.
+> **NOTE:** This sets the RPi's Wi-Fi connection to the 5 GHz network. The Create 3's Wi-Fi (2.4 GHz) will be configured separately through its webserver in the next steps.
 
 10. Save the settings, then select **Apply Settings** from the main menu.
 
 > **WARNING:** Applying settings will write configuration to the Create 3, which will reboot. Your SSH session may hang if Wi-Fi settings changed. Wait 2-3 minutes for the full reboot cycle. The Create 3 will chime when it is ready.
 
-11. After the Create 3 chimes, go back into `turtlebot4-setup` and navigate to **About > Model**. Select `lite`.
+11. After the Create 3 chimes, go back to the Create 3 webserver in your browser (`http://localhost:8080`). Navigate to **Application** > **Configuration**. If the namespace field contains anything (e.g., `/do_not_use`), clear it so it is blank. Click **Save**, then click **Restart Application**.
 
-12. Verify from the RPi terminal:
+12. **Configure the Create 3's Wi-Fi.** In the Create 3 webserver, navigate to the Wi-Fi / Connect section and configure:
+   - SSID: `GL-MT3000-3e8` (2.4 GHz)
+   - Password: *(provided by instructor)*
+
+Save and apply. The Create 3 only supports 2.4 GHz Wi-Fi, so it uses the non-5G SSID.
+
+13. Go back into `turtlebot4-setup` on the RPi and navigate to **About > Model**. Select `lite`.
+
+14. Verify from the RPi terminal:
 
 ```bash
 turtlebot4-source
